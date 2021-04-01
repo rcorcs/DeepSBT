@@ -240,7 +240,7 @@ def normalizeString(s):
 # flag to reverse the pairs.
 #
 
-def readLangs(lang1, file1, lang2, file2, reverse=False):
+def readLangs(lang1, file1, lang2, file2):
     print("Reading lines...")
 
     # Read the file and split into lines
@@ -276,14 +276,8 @@ def readLangs(lang1, file1, lang2, file2, reverse=False):
                 if code1!=None and code2!=None:
                     pairs.append( [code1, code2] )
 
-    # Reverse pairs, make Lang instances
-    if reverse:
-        pairs = [list(reversed(p)) for p in pairs]
-        input_lang = Lang(lang2)
-        output_lang = Lang(lang1)
-    else:
-        input_lang = Lang(lang1)
-        output_lang = Lang(lang2)
+    input_lang = Lang(lang1)
+    output_lang = Lang(lang2)
 
     return input_lang, output_lang, pairs
 
@@ -316,8 +310,8 @@ def filterPairs(pairs):
 # -  Make word lists from sentences in pairs
 #
 
-def prepareData(lang1, file1, lang2, file2, reverse=False):
-    input_lang, output_lang, pairs = readLangs(lang1, file1, lang2, file2, reverse)
+def prepareData(lang1, file1, lang2, file2):
+    input_lang, output_lang, pairs = readLangs(lang1, file1, lang2, file2)
     print("Read %s sentence pairs" % len(pairs))
     pairs = filterPairs(pairs)
     print("Trimmed to %s sentence pairs" % len(pairs))
@@ -331,7 +325,7 @@ def prepareData(lang1, file1, lang2, file2, reverse=False):
     return input_lang, output_lang, pairs
 
 
-input_lang, output_lang, pairs = prepareData('x86', 'data/x86.txt', 'arm', 'data/arm.txt', False)
+input_lang, output_lang, pairs = prepareData('x86', 'data/x86.txt', 'arm', 'data/arm.txt')
 print('Total pairs:',len(pairs))
 p = random.choice(pairs)
 print(input_lang, p[0])
