@@ -195,8 +195,7 @@ def unicodeToAscii(s):
 
 # Lowercase, trim, and remove non-letter characters
 
-
-def renameFunction(s):
+def renameIdsToPlaceholders(s):
     code = []
     start = False
     stop = False
@@ -215,23 +214,93 @@ def renameFunction(s):
         if stop:
             break
     if len(code)==0:
-        return None
-    s = ';'.join(code)
-    s = s.replace(fName,'func_name')
-    return s
+        return None, None
+    s = ' ; '.join(code)
+    #s = s.replace(fName,'func_name')
+    return fName, s
 
-def normalizeString(s):
+def isNumeric(s):
+    import string
+    s = s.strip()
+    if len(s)==0:
+        return False
+    if s[0]=='-':
+        s = s[1:]
+    if s.startswith('0x'):
+        s = s[2:]
+        for c in s:
+            if c not in string.hexdigits:
+                return False
+        return True
+    else:
+        return s.isnumeric()
+
+def isRegister(lang, s):
+    if lang=='x86' and s.startswith('%'):
+        return True
+    if lang=='arm' and len(s)>=2:
+        if s[0] in 'xwbhsdqv' and isNumeric(s[1:]):
+            return True
+        if s in ['sp','pc','xzr','wzr','lr']:
+            return True
+        #relocation 
+        if s in ['abs_g0','abs_g0_nc','abs_g1','abs_g1_nc','abs_g2','abs_g2_nc','abs_g3','abs_g0_s','abs_g1_s','abs_g2_s']:
+            return True
+        if s in ['pg_hi21','pg_hi21_nc','lo12']:
+            return True
+    return False
+
+def breakIntegerConstants(lang, s, fName):
+    import re
+    idpttrn = re.compile('[_a-zA-Z][_a-zA-Z0-9]*')
+    code = []
+    if not s:
+        return None
+    for line in s.split(';'):
+        entries = line.split()
+        ne = []
+        if entries[0]==fName:
+            ne.append('func_name')
+        else:
+            ne.append(entries[0])
+        for e in entries[1:]:
+            if isNumeric(e):
+                for c in e.strip():
+                    ne.append(c)
+            elif (not isRegister(lang, e)) and idpttrn.match(e):
+                if e==fName:
+                    ne.append('func_name')
+                else:
+                    ne.append('ID')
+            else:
+                ne.append(e)
+        code.append(' '.join(ne))
+    if len(code)==0:
+        return None
+    s = ' ; '.join(code)
+    return s
+    
+
+def normalizeString(lang, s):
     #s = unicodeToAscii(s.lower().strip())
     #s = re.sub(r"([.!?])", r" \1", s)
     #s = re.sub(r"[^a-zA-Z.!?]+", r" ", s)
+    #print()
+    #print(s)
     ns = ''
     for c in s:
-        if c in '[()]:;,!':
+        #if lang=='arm' and c in '#': #ignore characters
+        #    continue
+        if c in '[()]:;,!-$#':
             ns += ' '+c+' '
         else:
             ns += c
-    return renameFunction(ns)
-
+    fName, ns = renameIdsToPlaceholders(ns)
+    ns = breakIntegerConstants(lang, ns, fName)
+    #print()
+    #print(ns)
+    #print('-------------------------------------------------------------------------------')
+    return ns
 
 ######################################################################
 # To read the data file we will split the file into lines, and then split
