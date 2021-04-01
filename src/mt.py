@@ -96,12 +96,26 @@ import string
 import re
 import random
 
+import sys
+import argparse
+
 import torch
 import torch.nn as nn
 from torch import optim
 import torch.nn.functional as F
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+parser = argparse.ArgumentParser(description='deepsbt')
+parser.add_argument('--max-length', nargs=1, type=int, default=128, help='Maximum number of tokens per binary code')
+parser.add_argument('--cpu', nargs='?', const=True, default=False, help='Use only CPU for training and inference')
+args = parser.parse_args(sys.argv[1:])
+
+if args.cpu:
+    device = 'cpu'
+else:
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+MAX_LENGTH=args.max_length
+#MAX_LENGTH = 128
 
 ######################################################################
 # Loading data files
@@ -360,7 +374,7 @@ def readLangs(lang1, file1, lang2, file2):
 # earlier).
 #
 
-MAX_LENGTH = 128
+#MAX_LENGTH = 128
 
 def filterPair(p):
     return len(p[0].split()) < MAX_LENGTH and \
@@ -394,7 +408,30 @@ def prepareData(lang1, file1, lang2, file2):
     return input_lang, output_lang, pairs
 
 
-input_lang, output_lang, pairs = prepareData('x86', 'data/x86.txt', 'arm', 'data/arm.txt')
+import pickle
+import os
+
+
+path = '../data/'
+
+if os.path.exists(path+'/x86.'+str(MAX_LENGTH)+'.pkl') and os.path.exists(path+'/arm.'+str(MAX_LENGTH)+'.pkl') and os.path.exists(path+'/entries.'+str(MAX_LENGTH)+'.pkl'):
+    with open(path+'/x86.'+str(MAX_LENGTH)+'.pkl', 'rb') as f:
+        input_lang = pickle.load(f)
+    with open(path+'/arm.'+str(MAX_LENGTH)+'.pkl', 'rb') as f:
+        output_lang = pickle.load(f)
+    with open(path+'/entries.'+str(MAX_LENGTH)+'.pkl', 'rb') as f:
+        pairs = pickle.load(f)
+else:
+    input_lang, output_lang, pairs = prepareData('x86', path+'/x86.txt', 'arm', path+'/arm.txt')
+    with open(path+'/x86.'+str(MAX_LENGTH)+'.pkl', 'wb') as f:
+        pickle.dump(input_lang,f)
+    with open(path+'/arm.'+str(MAX_LENGTH)+'.pkl', 'wb') as f:
+        pickle.dump(output_lang,f)
+    with open(path+'/entries.'+str(MAX_LENGTH)+'.pkl', 'wb') as f:
+        pickle.dump(pairs,f)
+
+#input_lang, output_lang, pairs = prepareData('x86', 'data/x86.txt', 'arm', 'data/arm.txt')
+
 print('Total pairs:',len(pairs))
 p = random.choice(pairs)
 print(input_lang, p[0])
@@ -889,6 +926,9 @@ encoder1 = EncoderRNN(input_lang.n_words, hidden_size).to(device)
 attn_decoder1 = AttnDecoderRNN(hidden_size, output_lang.n_words, dropout_p=0.1).to(device)
 
 trainIters(encoder1, attn_decoder1, 75000, print_every=500)
+
+torch.save(encoder1, 'encoder.pt')
+torch.save(attn_decoder1, 'cattn_decoder.pt')
 
 ######################################################################
 #
