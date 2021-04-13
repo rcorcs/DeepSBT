@@ -1,82 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-NLP From Scratch: Translation with a Sequence to Sequence Network and Attention
-*******************************************************************************
-**Author**: `Sean Robertson <https://github.com/spro/practical-pytorch>`_
-
-This is the third and final tutorial on doing "NLP From Scratch", where we
-write our own classes and functions to preprocess the data to do our NLP
-modeling tasks. We hope after you complete this tutorial that you'll proceed to
-learn how `torchtext` can handle much of this preprocessing for you in the
-three tutorials immediately following this one.
-
-In this project we will be teaching a neural network to translate from
-French to English.
-
-::
-
-    [KEY: > input, = target, < output]
-
-    > il est en train de peindre un tableau .
-    = he is painting a picture .
-    < he is painting a picture .
-
-    > pourquoi ne pas essayer ce vin delicieux ?
-    = why not try that delicious wine ?
-    < why not try that delicious wine ?
-
-    > elle n est pas poete mais romanciere .
-    = she is not a poet but a novelist .
-    < she not not a poet but a novelist .
-
-    > vous etes trop maigre .
-    = you re too skinny .
-    < you re all alone .
-
-... to varying degrees of success.
-
-This is made possible by the simple but powerful idea of the `sequence
-to sequence network <https://arxiv.org/abs/1409.3215>`__, in which two
-recurrent neural networks work together to transform one sequence to
-another. An encoder network condenses an input sequence into a vector,
-and a decoder network unfolds that vector into a new sequence.
-
-.. figure:: /_static/img/seq-seq-images/seq2seq.png
-   :alt:
-
-To improve upon this model we'll use an `attention
-mechanism <https://arxiv.org/abs/1409.0473>`__, which lets the decoder
-learn to focus over a specific range of the input sequence.
-
-**Recommended Reading:**
-
-I assume you have at least installed PyTorch, know Python, and
-understand Tensors:
-
--  https://pytorch.org/ For installation instructions
--  :doc:`/beginner/deep_learning_60min_blitz` to get started with PyTorch in general
--  :doc:`/beginner/pytorch_with_examples` for a wide and deep overview
--  :doc:`/beginner/former_torchies_tutorial` if you are former Lua Torch user
-
-
-It would also be useful to know about Sequence to Sequence networks and
-how they work:
-
--  `Learning Phrase Representations using RNN Encoder-Decoder for
-   Statistical Machine Translation <https://arxiv.org/abs/1406.1078>`__
--  `Sequence to Sequence Learning with Neural
-   Networks <https://arxiv.org/abs/1409.3215>`__
--  `Neural Machine Translation by Jointly Learning to Align and
-   Translate <https://arxiv.org/abs/1409.0473>`__
--  `A Neural Conversational Model <https://arxiv.org/abs/1506.05869>`__
-
-You will also find the previous tutorials on
-:doc:`/intermediate/char_rnn_classification_tutorial`
-and :doc:`/intermediate/char_rnn_generation_tutorial`
-helpful as those concepts are very similar to the Encoder and Decoder
-models, respectively.
-
-And for more, read the papers that introduced these topics:
+For more, read the papers that introduced these topics:
 
 -  `Learning Phrase Representations using RNN Encoder-Decoder for
    Statistical Machine Translation <https://arxiv.org/abs/1406.1078>`__
@@ -354,8 +278,8 @@ def readLangs(lang1, file1, lang2, file2):
             filename = line[len('file:'):idx].strip()
             code = line[idx+len('content:'):].strip()
             if filename in data1.keys():
-                code1 = normalizeString(data1[filename])
-                code2 = normalizeString(code)
+                code1 = normalizeString(lang1, data1[filename])
+                code2 = normalizeString(lang2, code)
                 if code1!=None and code2!=None:
                     pairs.append( [code1, code2] )
 
@@ -797,25 +721,26 @@ def evaluateRandomly(encoder, decoder, n=10):
 
 def trainIters(encoder, decoder, n_iters, print_every=1000, plot_every=100, learning_rate=0.01):
     start = time.time()
-    plot_losses = []
+    #plot_losses = []
     print_loss_total = 0  # Reset every print_every
-    plot_loss_total = 0  # Reset every plot_every
+    #plot_loss_total = 0  # Reset every plot_every
 
     encoder_optimizer = optim.SGD(encoder.parameters(), lr=learning_rate)
     decoder_optimizer = optim.SGD(decoder.parameters(), lr=learning_rate)
-    training_pairs = [tensorsFromPair(random.choice(pairs))
-                      for i in range(n_iters)]
+    #training_pairs = [tensorsFromPair(random.choice(pairs))
+    #                  for i in range(n_iters)]
     criterion = nn.NLLLoss()
 
     for iter in range(1, n_iters + 1):
-        training_pair = training_pairs[iter - 1]
+        #training_pair = training_pairs[iter - 1]
+        training_pair = tensorsFromPair(random.choice(pairs))
         input_tensor = training_pair[0]
         target_tensor = training_pair[1]
 
         loss = train(input_tensor, target_tensor, encoder,
                      decoder, encoder_optimizer, decoder_optimizer, criterion)
         print_loss_total += loss
-        plot_loss_total += loss
+        #plot_loss_total += float(loss)
 
         if iter % print_every == 0:
             print_loss_avg = print_loss_total / print_every
@@ -824,12 +749,12 @@ def trainIters(encoder, decoder, n_iters, print_every=1000, plot_every=100, lear
                                          iter, iter / n_iters * 100, print_loss_avg))
             evaluateRandomly(encoder, decoder, n=1)
 
-        if iter % plot_every == 0:
-            plot_loss_avg = plot_loss_total / plot_every
-            plot_losses.append(plot_loss_avg)
-            plot_loss_total = 0
+        #if iter % plot_every == 0:
+        #    plot_loss_avg = plot_loss_total / plot_every
+        #    plot_losses.append(plot_loss_avg)
+        #    plot_loss_total = 0
 
-    showPlot(plot_losses)
+    #showPlot(plot_losses)
 
 
 ######################################################################
@@ -925,13 +850,12 @@ hidden_size = 256
 encoder1 = EncoderRNN(input_lang.n_words, hidden_size).to(device)
 attn_decoder1 = AttnDecoderRNN(hidden_size, output_lang.n_words, dropout_p=0.1).to(device)
 
-trainIters(encoder1, attn_decoder1, 75000, print_every=500)
+trainIters(encoder1, attn_decoder1, 100000, print_every=250)
 
 torch.save(encoder1, 'encoder.pt')
 torch.save(attn_decoder1, 'cattn_decoder.pt')
 
 ######################################################################
-#
 
 evaluateRandomly(encoder1, attn_decoder1)
 
@@ -950,9 +874,9 @@ evaluateRandomly(encoder1, attn_decoder1)
 # output steps:
 #
 
-output_words, attentions = evaluate(
-    encoder1, attn_decoder1, "je suis trop froid .")
-plt.matshow(attentions.numpy())
+#output_words, attentions = evaluate(
+#    encoder1, attn_decoder1, "je suis trop froid .")
+#plt.matshow(attentions.numpy())
 
 
 ######################################################################
@@ -987,13 +911,13 @@ def evaluateAndShowAttention(input_sentence):
     showAttention(input_sentence, output_words, attentions)
 
 
-evaluateAndShowAttention("elle a cinq ans de moins que moi .")
+#evaluateAndShowAttention("elle a cinq ans de moins que moi .")
 
-evaluateAndShowAttention("elle est trop petit .")
+#evaluateAndShowAttention("elle est trop petit .")
 
-evaluateAndShowAttention("je ne crains pas de mourir .")
+#evaluateAndShowAttention("je ne crains pas de mourir .")
 
-evaluateAndShowAttention("c est un jeune directeur plein de talent .")
+#evaluateAndShowAttention("c est un jeune directeur plein de talent .")
 
 
 ######################################################################
