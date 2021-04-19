@@ -42,326 +42,13 @@ else:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 MAX_LENGTH=int(args.max_length[0])
-#MAX_LENGTH = 128
 
 PATH = '../data/'
 
-######################################################################
-# Loading data files
-# ==================
-#
-# The data for this project is a set of many thousands of English to
-# French translation pairs.
-#
-# `This question on Open Data Stack
-# Exchange <https://opendata.stackexchange.com/questions/3888/dataset-of-sentences-translated-into-many-languages>`__
-# pointed me to the open translation site https://tatoeba.org/ which has
-# downloads available at https://tatoeba.org/eng/downloads - and better
-# yet, someone did the extra work of splitting language pairs into
-# individual text files here: https://www.manythings.org/anki/
-#
-# The English to French pairs are too big to include in the repo, so
-# download to ``data/eng-fra.txt`` before continuing. The file is a tab
-# separated list of translation pairs:
-#
-# ::
-#
-#     I am cold.    J'ai froid.
-#
-# .. Note::
-#    Download the data from
-#    `here <https://download.pytorch.org/tutorial/data.zip>`_
-#    and extract it to the current directory.
+import language
+from language import Lang
 
-######################################################################
-# Similar to the character encoding used in the character-level RNN
-# tutorials, we will be representing each word in a language as a one-hot
-# vector, or giant vector of zeros except for a single one (at the index
-# of the word). Compared to the dozens of characters that might exist in a
-# language, there are many many more words, so the encoding vector is much
-# larger. We will however cheat a bit and trim the data to only use a few
-# thousand words per language.
-#
-# .. figure:: /_static/img/seq-seq-images/word-encoding.png
-#    :alt:
-#
-#
-
-
-######################################################################
-# We'll need a unique index per word to use as the inputs and targets of
-# the networks later. To keep track of all this we will use a helper class
-# called ``Lang`` which has word → index (``word2index``) and index → word
-# (``index2word``) dictionaries, as well as a count of each word
-# ``word2count`` to use to later replace rare words.
-#
-
-SOS_token = 0
-EOS_token = 1
-
-
-class Lang:
-    def __init__(self, name):
-        self.name = name
-        self.word2index = {}
-        self.word2count = {}
-        self.index2word = {0: "SOS", 1: "EOS"}
-        self.n_words = 2  # Count SOS and EOS
-
-    def addSentence(self, sentence):
-        for word in sentence.split():
-            self.addWord(word)
-
-    def addWord(self, word):
-        if word not in self.word2index:
-            self.word2index[word] = self.n_words
-            self.word2count[word] = 1
-            self.index2word[self.n_words] = word
-            self.n_words += 1
-        else:
-            self.word2count[word] += 1
-
-
-######################################################################
-# The files are all in Unicode, to simplify we will turn Unicode
-# characters to ASCII, make everything lowercase, and trim most
-# punctuation.
-#
-
-# Turn a Unicode string to plain ASCII, thanks to
-# https://stackoverflow.com/a/518232/2809427
-def unicodeToAscii(s):
-    return ''.join(
-        c for c in unicodedata.normalize('NFD', s)
-        if unicodedata.category(c) != 'Mn'
-    )
-
-# Lowercase, trim, and remove non-letter characters
-
-def renameIdsToPlaceholders(s):
-    code = []
-    start = False
-    stop = False
-    fName = None
-    for line in s.split(';'):
-        if len(line.strip())==0:
-            continue
-        entries = line.split()
-        if entries[-1]=='@function':
-            start = True
-            fName = entries[1]
-        if entries[0]=='.cfi_endproc':
-            stop = True
-        if start:
-            code.append(line)
-        if stop:
-            break
-    if len(code)==0:
-        return None, None
-    s = ' ; '.join(code)
-    #s = s.replace(fName,'func_name')
-    return fName, s
-
-def isNumeric(s):
-    import string
-    s = s.strip()
-    if len(s)==0:
-        return False
-    if s[0]=='-':
-        s = s[1:]
-    if s.startswith('0x'):
-        s = s[2:]
-        for c in s:
-            if c not in string.hexdigits:
-                return False
-        return True
-    else:
-        return s.isnumeric()
-
-def isRegister(lang, s):
-    if lang=='x86' and s.startswith('%'):
-        return True
-    if lang=='arm' and len(s)>=2:
-        if s[0] in 'xwbhsdqv' and isNumeric(s[1:]):
-            return True
-        if s in ['sp','pc','xzr','wzr','lr']:
-            return True
-        #relocation 
-        if s in ['abs_g0','abs_g0_nc','abs_g1','abs_g1_nc','abs_g2','abs_g2_nc','abs_g3','abs_g0_s','abs_g1_s','abs_g2_s']:
-            return True
-        if s in ['pg_hi21','pg_hi21_nc','lo12']:
-            return True
-    return False
-
-def breakIntegerConstants(lang, s, fName):
-    import re
-    idpttrn = re.compile('[_a-zA-Z][_a-zA-Z0-9]*')
-    code = []
-    if not s:
-        return None
-    for line in s.split(';'):
-        entries = line.split()
-        ne = []
-        if entries[0]==fName:
-            ne.append('func_name')
-        else:
-            ne.append(entries[0])
-        for e in entries[1:]:
-            if isNumeric(e):
-                for c in e.strip():
-                    ne.append(c)
-            elif (not isRegister(lang, e)) and idpttrn.match(e):
-                if e==fName:
-                    ne.append('func_name')
-                else:
-                    ne.append('ID')
-            else:
-                ne.append(e)
-        code.append(' '.join(ne))
-    if len(code)==0:
-        return None
-    s = ' ; '.join(code)
-    return s
-    
-
-def normalizeString(lang, s):
-    #s = unicodeToAscii(s.lower().strip())
-    #s = re.sub(r"([.!?])", r" \1", s)
-    #s = re.sub(r"[^a-zA-Z.!?]+", r" ", s)
-    #print()
-    #print(s)
-    ns = ''
-    for c in s:
-        #if lang=='arm' and c in '#': #ignore characters
-        #    continue
-        if c in '[()]:;,!-$#':
-            ns += ' '+c+' '
-        else:
-            ns += c
-    fName, ns = renameIdsToPlaceholders(ns)
-    ns = breakIntegerConstants(lang, ns, fName)
-    if ns!=None:
-        tokens = ns.split()
-        start = tokens.index('.cfi_startproc') + 2
-        end = tokens.index('.Lfunc_end0')
-        ns = ' '.join(tokens[start:end])
-    #print()
-    #print(ns)
-    #print('-------------------------------------------------------------------------------')
-    return ns
-
-######################################################################
-# To read the data file we will split the file into lines, and then split
-# lines into pairs. The files are all English → Other Language, so if we
-# want to translate from Other Language → English I added the ``reverse``
-# flag to reverse the pairs.
-#
-
-def readLangs(lang1, file1, lang2, file2):
-    print("Reading lines...")
-
-    # Read the file and split into lines
-    #lines = open('data/%s-%s.txt' % (lang1, lang2), encoding='utf-8').\
-    #    read().strip().split('\n')
-
-    # Split every line into pairs and normalize
-    #pairs = [[normalizeString(s) for s in l.split('\t')] for l in lines]
-
-    data1 = {}
-    with open(file1) as f:
-        for line in f:
-            line = line.strip()
-            if len(line)==0:
-                continue
-            idx = line.find('content:')
-            filename = line[len('file:'):idx].strip()
-            code = line[idx+len('content:'):].strip()
-            data1[filename] = code
-    
-    pairs = []
-    with open(file2) as f:
-        for line in f:
-            line = line.strip()
-            if len(line)==0:
-                continue
-            idx = line.find('content:')
-            filename = line[len('file:'):idx].strip()
-            code = line[idx+len('content:'):].strip()
-            if filename in data1.keys():
-                code1 = normalizeString(lang1, data1[filename])
-                code2 = normalizeString(lang2, code)
-                if code1!=None and code2!=None:
-                    pairs.append( [code1, code2] )
-
-    input_lang = Lang(lang1)
-    output_lang = Lang(lang2)
-
-    return input_lang, output_lang, pairs
-
-
-######################################################################
-# Since there are a *lot* of example sentences and we want to train
-# something quickly, we'll trim the data set to only relatively short and
-# simple sentences. Here the maximum length is 10 words (that includes
-# ending punctuation) and we're filtering to sentences that translate to
-# the form "I am" or "He is" etc. (accounting for apostrophes replaced
-# earlier).
-#
-
-#MAX_LENGTH = 128
-
-def filterPair(p):
-    return len(p[0].split()) < MAX_LENGTH and \
-        len(p[1].split()) < MAX_LENGTH
-
-
-def filterPairs(pairs):
-    return [pair for pair in pairs if filterPair(pair)]
-
-
-######################################################################
-# The full process for preparing the data is:
-#
-# -  Read text file and split into lines, split lines into pairs
-# -  Normalize text, filter by length and content
-# -  Make word lists from sentences in pairs
-#
-
-def prepareData(lang1, file1, lang2, file2):
-    input_lang, output_lang, pairs = readLangs(lang1, file1, lang2, file2)
-    print("Read %s sentence pairs" % len(pairs))
-    pairs = filterPairs(pairs)
-    print("Trimmed to %s sentence pairs" % len(pairs))
-    print("Counting words...")
-    for pair in pairs:
-        input_lang.addSentence(pair[0])
-        output_lang.addSentence(pair[1])
-    print("Counted words:")
-    print(input_lang.name, input_lang.n_words)
-    print(output_lang.name, output_lang.n_words)
-    return input_lang, output_lang, pairs
-
-
-
-
-if os.path.exists(PATH+'/x86.'+str(MAX_LENGTH)+'.pkl') and os.path.exists(PATH+'/arm.'+str(MAX_LENGTH)+'.pkl') and os.path.exists(PATH+'/entries.'+str(MAX_LENGTH)+'.pkl'):
-    with open(PATH+'/x86.'+str(MAX_LENGTH)+'.pkl', 'rb') as f:
-        input_lang = pickle.load(f)
-    with open(PATH+'/arm.'+str(MAX_LENGTH)+'.pkl', 'rb') as f:
-        output_lang = pickle.load(f)
-    with open(PATH+'/entries.'+str(MAX_LENGTH)+'.pkl', 'rb') as f:
-        pairs = pickle.load(f)
-else:
-    input_lang, output_lang, pairs = prepareData('x86', PATH+'/x86.txt', 'arm', PATH+'/arm.txt')
-    with open(PATH+'/x86.'+str(MAX_LENGTH)+'.pkl', 'wb') as f:
-        pickle.dump(input_lang,f)
-    with open(PATH+'/arm.'+str(MAX_LENGTH)+'.pkl', 'wb') as f:
-        pickle.dump(output_lang,f)
-    with open(PATH+'/entries.'+str(MAX_LENGTH)+'.pkl', 'wb') as f:
-        pickle.dump(pairs,f)
-
-print('Total pairs:',len(pairs))
-
+input_lang, output_lang, pairs = language.loadCachedOrBuild(PATH, 'x86', PATH+'/x86.txt', 'arm', PATH+'/arm.txt', MAX_LENGTH)
 
 ######################################################################
 # The Seq2Seq Model
@@ -575,7 +262,7 @@ def indexesFromSentence(lang, sentence):
 
 def tensorFromSentence(lang, sentence):
     indexes = indexesFromSentence(lang, sentence)
-    indexes.append(EOS_token)
+    indexes.append(lang.EOS_token)
     return torch.tensor(indexes, dtype=torch.long, device=device).view(-1, 1)
 
 def tensorsFromPair(pair):
@@ -612,8 +299,7 @@ tensor_pairs = [tensorsFromPair(p) for p in pairs]
 # ``teacher_forcing_ratio`` up to use more of it.
 #
 
-#teacher_forcing_ratio = 0.5
-teacher_forcing_ratio = 0
+teacher_forcing_ratio = 0.5
 
 def train(input_tensor, target_tensor, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion, max_length=MAX_LENGTH):
     encoder_hidden = encoder.initHidden()
@@ -633,7 +319,7 @@ def train(input_tensor, target_tensor, encoder, decoder, encoder_optimizer, deco
             input_tensor[ei], encoder_hidden)
         encoder_outputs[ei] = encoder_output[0, 0]
 
-    decoder_input = torch.tensor([[SOS_token]], device=device)
+    decoder_input = torch.tensor([[output_lang.SOS_token]], device=device)
 
     decoder_hidden = encoder_hidden
 
@@ -642,29 +328,21 @@ def train(input_tensor, target_tensor, encoder, decoder, encoder_optimizer, deco
     if use_teacher_forcing:
         # Teacher forcing: Feed the target as the next input
         for di in range(target_length):
-            # Using attention model
-            #decoder_output, decoder_hidden, decoder_attention = decoder(
-            #    decoder_input, decoder_hidden, encoder_outputs)
-            # Using baisc model
-            decoder_output, decoder_hidden = decoder(
-                decoder_input, decoder_hidden)
+            decoder_output, decoder_hidden, decoder_attention = decoder(
+                decoder_input, decoder_hidden, encoder_outputs)
             loss += criterion(decoder_output, target_tensor[di])
             decoder_input = target_tensor[di]  # Teacher forcing
 
     else:
         # Without teacher forcing: use its own predictions as the next input
         for di in range(target_length):
-            # Using attention model
-            #decoder_output, decoder_hidden, decoder_attention = decoder(
-            #    decoder_input, decoder_hidden, encoder_outputs)
-            # Using baisc model
-            decoder_output, decoder_hidden = decoder(
-                decoder_input, decoder_hidden)
+            decoder_output, decoder_hidden, decoder_attention = decoder(
+                decoder_input, decoder_hidden, encoder_outputs)
             topv, topi = decoder_output.topk(1)
             decoder_input = topi.squeeze().detach()  # detach from history as input
 
             loss += criterion(decoder_output, target_tensor[di])
-            if decoder_input.item() == EOS_token:
+            if decoder_input.item() == input_lang.EOS_token:
                 break
 
     loss.backward()
@@ -822,7 +500,7 @@ def evaluate(encoder, decoder, input_tensor, max_length=MAX_LENGTH):
                                                      encoder_hidden)
             encoder_outputs[ei] += encoder_output[0, 0]
 
-        decoder_input = torch.tensor([[SOS_token]], device=device)  # SOS
+        decoder_input = torch.tensor([[output_lang.SOS_token]], device=device)  # SOS
 
         decoder_hidden = encoder_hidden
 
@@ -830,15 +508,11 @@ def evaluate(encoder, decoder, input_tensor, max_length=MAX_LENGTH):
         decoder_attentions = torch.zeros(max_length, max_length)
 
         for di in range(max_length):
-            # Using attention model
-            #decoder_output, decoder_hidden, decoder_attention = decoder(
-            #    decoder_input, decoder_hidden, encoder_outputs)
-            #decoder_attentions[di] = decoder_attention.data
-            # Using baisc model
-            decoder_output, decoder_hidden = decoder(
-                decoder_input, decoder_hidden)
+            decoder_output, decoder_hidden, decoder_attention = decoder(
+                decoder_input, decoder_hidden, encoder_outputs)
+            decoder_attentions[di] = decoder_attention.data
             topv, topi = decoder_output.data.topk(1)
-            if topi.item() == EOS_token:
+            if topi.item() == input_lang.EOS_token:
                 decoded_words.append('<EOS>')
                 break
             else:
@@ -878,17 +552,9 @@ if os.path.exists(ENCODER_PATH) and os.path.exists(DECODER_PATH):
   attn_decoder1 = torch.load(DECODER_PATH)
 else:
   encoder1 = EncoderRNN(input_lang.n_words, hidden_size).to(device)
-  #attn_decoder1 = AttnDecoderRNN(hidden_size, output_lang.n_words, dropout_p=0.1).to(device)
-  attn_decoder1 = DecoderRNN(hidden_size, output_lang.n_words).to(device)
+  attn_decoder1 = AttnDecoderRNN(hidden_size, output_lang.n_words, dropout_p=0.1).to(device)
 
-trainIters(encoder1, attn_decoder1, 100000, print_every=150)
 
-torch.save(encoder1, ENCODER_PATH)
-torch.save(attn_decoder1, DECODER_PATH)
-
-######################################################################
-
-evaluateRandomly(encoder1, attn_decoder1)
 
 
 ######################################################################
@@ -917,7 +583,7 @@ evaluateRandomly(encoder1, attn_decoder1)
 
 def saveAttention(input_sentence, output_words, attentions, filename):
     # Set up figure with colorbar
-    fig = plt.figure()
+    fig = plt.figure(figsize=(16, 16))
     ax = fig.add_subplot(111)
     cax = ax.matshow(attentions.numpy(), cmap='bone')
     fig.colorbar(cax)
@@ -934,43 +600,13 @@ def saveAttention(input_sentence, output_words, attentions, filename):
     plt.savefig(filename)
 
 
-def evaluateAndShowAttention(input_sentence):
+def evaluateAndSaveAttention(input_sentence,filename):
     output_words, attentions = evaluate(
-        encoder1, attn_decoder1, input_sentence)
-    print('input =', input_sentence)
-    print('output =', ' '.join(output_words))
-    showAttention(input_sentence, output_words, attentions)
+        encoder1, attn_decoder1, tensorFromSentence(input_lang, input_sentence))
+    print('> ', input_sentence)
+    print('< ', ' '.join(output_words))
+    saveAttention(input_sentence, output_words, attentions, filename)
 
 
-#evaluateAndShowAttention("elle a cinq ans de moins que moi .")
-
-#evaluateAndShowAttention("elle est trop petit .")
-
-#evaluateAndShowAttention("je ne crains pas de mourir .")
-
-#evaluateAndShowAttention("c est un jeune directeur plein de talent .")
-
-
-######################################################################
-# Exercises
-# =========
-#
-# -  Try with a different dataset
-#
-#    -  Another language pair
-#    -  Human → Machine (e.g. IOT commands)
-#    -  Chat → Response
-#    -  Question → Answer
-#
-# -  Replace the embeddings with pre-trained word embeddings such as word2vec or
-#    GloVe
-# -  Try with more layers, more hidden units, and more sentences. Compare
-#    the training time and results.
-# -  If you use a translation file where pairs have two of the same phrase
-#    (``I am test \t I am test``), you can use this as an autoencoder. Try
-#    this:
-#
-#    -  Train as an autoencoder
-#    -  Save only the Encoder network
-#    -  Train a new Decoder for translation from there
-#
+input_code = language.normalizeString(input_lang, '.text;.globl swap;.p2align 4, 0x90;.type swap,@function;swap:;.cfi_startproc;movl (%rdi), %eax;movl (%rsi), %ecx;movl %ecx, (%rdi);movl %eax, (%rsi);retq;.Lfunc_end0:;.size swap, .Lfunc_end0-swap;.cfi_endproc;.section ".note.GNU-stack","",@progbits;.addrsig;')
+evaluateAndSaveAttention(input_code,'attention.pdf')
