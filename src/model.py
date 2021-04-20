@@ -267,6 +267,15 @@ def tensorsFromPair(pair, langs, device):
   target_tensor = tensorFromSentence(langs[1], pair[1], device)
   return (input_tensor, target_tensor)
 
+def sentenceFromTensor(lang, tensor):
+  decoded_words = []
+  for token in tensor:
+    decoded_words.append(lang.index2word[token])
+    if token == lang.EOS_token:
+      break
+  return ' '.join(decoded_words)
+
+
 ######################################################################
 # Evaluation
 # ==========
@@ -278,10 +287,10 @@ def tensorsFromPair(pair, langs, device):
 # attention outputs for display later.
 #
 
-def evaluate(encoder, decoder, input_tensor, device):
+def evaluate(encoder, decoder, input_tensor, max_length, device):
   with torch.no_grad():
     input_length = input_tensor.size()[0]
-    encoder_hidden = encoder.initHidden()
+    encoder_hidden = encoder.initHidden(device)
 
     decoder_attentions = None
     encoder_outputs = None
@@ -289,8 +298,7 @@ def evaluate(encoder, decoder, input_tensor, device):
       decoder_attentions, encoder_outputs = decoder.initAttention(device)
 
     for ei in range(input_length):
-      encoder_output, encoder_hidden = encoder(input_tensor[ei],
-                                               encoder_hidden)
+      encoder_output, encoder_hidden = encoder(input_tensor[ei],encoder_hidden)
       if decoder.uses_attention:
         encoder_outputs[ei] += encoder_output[0, 0]
 
@@ -312,8 +320,7 @@ def evaluate(encoder, decoder, input_tensor, device):
       decoded_tokens.append(topi.item())
       if topi.item() == decoder.EOS_token:
         break
-
       decoder_input = topi.squeeze().detach()
-
+      
     return decoded_tokens, (decoder_attentions[:di + 1] if decoder.uses_attention else None)
 
