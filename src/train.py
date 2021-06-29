@@ -158,36 +158,41 @@ def trainIters(encoder, decoder, tensor_pairs, n_iters, device, learning_rate=0.
 
   encoder_optimizer = optim.SGD(encoder.parameters(), lr=learning_rate)
   decoder_optimizer = optim.SGD(decoder.parameters(), lr=learning_rate)
-  training_indices = [ random.randrange(0,len(tensor_pairs)) for i in range(n_iters) ]
+  #training_indices = [ random.randrange(0,len(tensor_pairs)) for i in range(n_iters) ]
   
   criterion = nn.NLLLoss()
 
-  for iter in range(1, n_iters + 1):
-    idx = training_indices[iter - 1]
-    training_pair = tensor_pairs[idx]
+  total_iters = n_iters*len(tensor_pairs)
+  iter = 0
+  for i in range(n_iters):
+    for training_pair in tensor_pairs:
+      iter += 1
+      #for iter in range(1, n_iters + 1):
+      #idx = training_indices[iter - 1]
+      #training_pair = tensor_pairs[idx]
 
-    input_tensor = training_pair[0]
-    target_tensor = training_pair[1]
+      input_tensor = training_pair[0]
+      target_tensor = training_pair[1]
 
-    loss = train(input_tensor, target_tensor, encoder,
-                 decoder, encoder_optimizer, decoder_optimizer, criterion, device)
-    print_loss_total += loss
+      loss = train(input_tensor, target_tensor, encoder,
+                   decoder, encoder_optimizer, decoder_optimizer, criterion, device)
+      print_loss_total += loss
 
-    if iter % print_every == 0:
-      print_loss_avg = print_loss_total / print_every
-      print_loss_total = 0
-      print('%s (%d %d%%) %.4f' % (timeSince(start, iter / n_iters),
-                                   iter, iter / n_iters * 100, print_loss_avg))
-      #check point
-      if encoder.path!=None:
-        torch.save(encoder, encoder.path)
-      if decoder.path!=None:
-        torch.save(decoder, decoder.path)
-      import psutil
-      print('Used memory:',psutil.virtual_memory().percent)
-      if psutil.virtual_memory().percent>90:
-        #breaks training if memory usage becomes unmanagable
-        break
+      if iter % print_every == 0:
+        print_loss_avg = print_loss_total / print_every
+        print_loss_total = 0
+        print('%s (%d %d%%) %.4f' % (timeSince(start, iter / total_iters),
+                                     iter, iter / total_iters * 100, print_loss_avg))
+        #check point
+        if encoder.path!=None:
+          torch.save(encoder, encoder.path)
+        if decoder.path!=None:
+          torch.save(decoder, decoder.path)
+        import psutil
+        print('Used memory:',psutil.virtual_memory().percent)
+        if psutil.virtual_memory().percent>90:
+          #breaks training if memory usage becomes unmanagable
+          break
 
 
 if __name__ == '__main__':
@@ -216,10 +221,11 @@ if __name__ == '__main__':
   MAX_LENGTH=int(args.max_length[0])
   #MAX_LENGTH = 128
   
-  PATH = '../data/'
+  LangPath = '../data/'
+  PATH = '../models/'
 
   langs = ('x86', 'arm')
-  input_lang, output_lang, pairs = language.loadCachedOrBuild(PATH, langs[0], PATH+'/'+langs[0]+'.txt', langs[1], PATH+'/'+langs[1]+'.txt', MAX_LENGTH)
+  input_lang, output_lang, pairs = language.loadCachedOrBuild(PATH, langs[0], LangPath+'/'+langs[0]+'.txt', langs[1], LangPath+'/'+langs[1]+'.txt', MAX_LENGTH)
 
   langs = (input_lang, output_lang)
   
@@ -235,13 +241,13 @@ if __name__ == '__main__':
     attn_decoder1 = torch.load(DECODER_PATH)
   else:
     encoder1 = model.EncoderRNN(input_lang, hidden_size).to(device)
-    #attn_decoder1 = AttnDecoderRNN(output_lang, hidden_size, dropout_p=0.1).to(device)
-    attn_decoder1 = model.DecoderRNN(output_lang, hidden_size).to(device)
+    attn_decoder1 = model.AttnDecoderRNN(output_lang, hidden_size, MAX_LENGTH, dropout_p=0.1).to(device)
+    #attn_decoder1 = model.DecoderRNN(output_lang, hidden_size).to(device)
 
   encoder1.path = ENCODER_PATH
   attn_decoder1.path = DECODER_PATH
 
-  trainIters(encoder1, attn_decoder1, tensor_pairs, 100000, device=device, print_every=150)
+  trainIters(encoder1, attn_decoder1, tensor_pairs, 4, device=device, print_every=500)
 
   torch.save(encoder1, encoder1.path)
   torch.save(attn_decoder1, attn_decoder1.path)

@@ -608,5 +608,6 @@ def evaluateAndSaveAttention(input_sentence,filename):
     saveAttention(input_sentence, output_words, attentions, filename)
 
 
-input_code = language.normalizeString(input_lang, '.text;.globl swap;.p2align 4, 0x90;.type swap,@function;swap:;.cfi_startproc;movl (%rdi), %eax;movl (%rsi), %ecx;movl %ecx, (%rdi);movl %eax, (%rsi);retq;.Lfunc_end0:;.size swap, .Lfunc_end0-swap;.cfi_endproc;.section ".note.GNU-stack","",@progbits;.addrsig;')
+input_code, fName, _ = language.normalizeString(input_lang, '.text;.globl swap;.p2align 4, 0x90;.type swap,@function;swap:;.cfi_startproc;movl (%rdi), %eax;movl (%rsi), %ecx;movl %ecx, (%rdi);movl %eax, (%rsi);retq;.Lfunc_end0:;.size swap, .Lfunc_end0-swap;.cfi_endproc;.section ".note.GNU-stack","",@progbits;.addrsig;')
+print('Translating:',fName)
 evaluateAndSaveAttention(input_code,'attention.pdf')

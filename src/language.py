@@ -107,7 +107,6 @@ def renameIdsToPlaceholders(s):
   if len(code)==0:
     return None, None
   s = ' ; '.join(code)
-  #s = s.replace(fName,'func_name')
   return fName, s
 
 def isNumeric(s):
@@ -145,8 +144,9 @@ def breakIntegerConstants(lang, s, fName):
   import re
   idpttrn = re.compile('[_a-zA-Z][_a-zA-Z0-9]*')
   code = []
+  idsequence = []
   if not s:
-    return None
+    return None, None
   for line in s.split(';'):
     entries = line.split()
     ne = []
@@ -163,13 +163,14 @@ def breakIntegerConstants(lang, s, fName):
           ne.append('func_name')
         else:
           ne.append('ID')
+          idsequence.append(e)
       else:
         ne.append(e)
     code.append(' '.join(ne))
   if len(code)==0:
-    return None
+    return None, None
   s = ' ; '.join(code)
-  return s
+  return s, idsequence
     
 
 def normalizeString(lang, s):
@@ -180,13 +181,37 @@ def normalizeString(lang, s):
     else:
       ns += c
   fName, ns = renameIdsToPlaceholders(ns)
-  ns = breakIntegerConstants(lang, ns, fName)
+  ns, idsequence = breakIntegerConstants(lang, ns, fName)
   if ns!=None:
     tokens = ns.split()
     start = tokens.index('.cfi_startproc') + 2
     end = tokens.index('.Lfunc_end0')
     ns = ' '.join(tokens[start:end])
-  return ns
+  return ns, fName, idsequence
+
+
+def parseRawFile(filepath, lang='x86'):
+  comment_token = {'x86':'#','arm':'//'}
+  s = ''
+  with open(filepath) as f:
+    for line in f:
+      idx = line.find(comment_token[lang])
+      line = line[:idx].strip()
+      if line.startswith('.file'):
+        continue
+      if line.startswith('.ident'):
+        continue
+      line = ' '.join(line.split())
+      if len(line)==0:
+        continue
+      s += line + ' ; '
+  return s
+
+def formatSentence(s):
+  ns = ''
+  for line in s.split(';'):
+    ns += line.strip() + '\n'
+  return ns.strip()
 
 ######################################################################
 # To read the data file we will split the file into lines, and then split
@@ -219,8 +244,8 @@ def readLangs(lang1, file1, lang2, file2):
       filename = line[len('file:'):idx].strip()
       code = line[idx+len('content:'):].strip()
       if filename in data1.keys():
-        code1 = normalizeString(lang1, data1[filename])
-        code2 = normalizeString(lang2, code)
+        code1, _, _ = normalizeString(lang1, data1[filename])
+        code2, _, _ = normalizeString(lang2, code)
         if code1!=None and code2!=None:
           pairs.append( [code1, code2] )
 
@@ -302,9 +327,10 @@ if __name__=='__main__':
   parser.add_argument('--max-length', nargs=1, type=int, default=[128], help='Maximum number of tokens per binary code')
   args = parser.parse_args(sys.argv[1:])
 
-  MAX_LENGTH=int(args.max_length[0])
-  PATH = '../data/'
+  LangPath = '../data/'
+  PATH = '../models/'
 
-  input_lang, output_lang, pairs = loadCachedOrBuild(PATH, 'x86', PATH+'/x86.txt', 'arm', PATH+'/arm.txt', MAX_LENGTH)
+  langs = ('x86', 'arm')
+  input_lang, output_lang, pairs = language.loadCachedOrBuild(PATH, langs[0], LangPath+'/'+langs[0]+'.txt', langs[1], LangPath+'/'+langs[1]+'.txt', MAX_LENGTH)
   
   print('Total pairs:',len(pairs))
